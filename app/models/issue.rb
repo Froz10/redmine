@@ -62,17 +62,11 @@ class Issue < ActiveRecord::Base
   attr_writer :deleted_attachment_ids
   delegate :notes, :notes=, :private_notes, :private_notes=, :to => :current_journal, :allow_nil => true
 
-  validates_presence_of :subject, :project, :tracker
-  validates_presence_of :priority, :if => Proc.new {|issue| issue.new_record? || issue.priority_id_changed?}
-  validates_presence_of :status, :if => Proc.new {|issue| issue.new_record? || issue.status_id_changed?}
-  validates_presence_of :author, :if => Proc.new {|issue| issue.new_record? || issue.author_id_changed?}
-
   validates_length_of :subject, :maximum => 255
   validates_inclusion_of :done_ratio, :in => 0..100
   validates :estimated_hours, :numericality => {:greater_than_or_equal_to => 0, :allow_nil => true, :message => :invalid}
   validates :start_date, :date => true
   validates :due_date, :date => true
-  validate :validate_issue, :validate_required_fields, :validate_permissions
 
   scope :visible, (lambda do |*args|
     joins(:project).
@@ -117,16 +111,12 @@ class Issue < ActiveRecord::Base
     end
   end
   after_save :reschedule_following_issues, :update_nested_set_attributes,
-             :update_parent_attributes, :delete_selected_attachments, :create_journal
+                            :delete_selected_attachments, :create_journal
   # Should be after_create but would be called before previous after_save callbacks
   after_save :after_create_from_copy
-  after_destroy :update_parent_attributes
   # add_auto_watcher needs to run before sending notifications, thus it needs
   # to be added after send_notification (after_ callbacks are run in inverse order)
   # https://api.rubyonrails.org/v5.2.3/classes/ActiveSupport/Callbacks/ClassMethods.html#method-i-set_callback
-  after_create_commit :send_notification
-  after_create_commit :add_auto_watcher
-  after_commit :create_parent_issue_journal
 
   # Returns a SQL conditions string used to find all issues visible by the specified user
   def self.visible_condition(user, options={})
@@ -232,13 +222,6 @@ class Issue < ActiveRecord::Base
       self.watcher_user_ids = []
     end
   end
-
-  def create_or_update(*args)
-    super()
-  ensure
-    @status_was = nil
-  end
-  private :create_or_update
 
   # AR#Persistence#destroy would raise and RecordNotFound exception
   # if the issue was already deleted or updated (non matching lock_version).
@@ -1122,7 +1105,7 @@ class Issue < ActiveRecord::Base
     notified = notified.select {|u| u.active? && u.notify_about?(self)}
 
     notified += project.notified_users
-    notified += project.users.preload(:preference).select(&:notify_about_high_priority_issues?) if priority.high?
+    notified += project.users.preload(:preference).select(&:notify_about_high_priority_issues?) if priority&.high?
     notified.uniq!
     # Remove users that can not view the issue
     notified.reject! {|user| !visible?(user)}
@@ -1814,67 +1797,6 @@ class Issue < ActiveRecord::Base
       end
     end
     # update former parent
-    recalculate_attributes_for(former_parent_id) if former_parent_id
-  end
-
-  def update_parent_attributes
-    if parent_id
-      recalculate_attributes_for(parent_id)
-      association(:parent).reset
-    end
-  end
-
-  def recalculate_attributes_for(issue_id)
-    if issue_id && p = Issue.find_by_id(issue_id)
-      if p.priority_derived?
-        # priority = highest priority of open children
-        # priority is left unchanged if all children are closed and there's no default priority defined
-        if priority_position =
-             p.children.open.joins(:priority).maximum("#{IssuePriority.table_name}.position")
-          p.priority = IssuePriority.find_by_position(priority_position)
-        elsif default_priority = IssuePriority.default
-          p.priority = default_priority
-        end
-      end
-
-      if p.dates_derived?
-        # start/due dates = lowest/highest dates of children
-        p.start_date = p.children.minimum(:start_date)
-        p.due_date = p.children.maximum(:due_date)
-        if p.start_date && p.due_date && p.due_date < p.start_date
-          p.start_date, p.due_date = p.due_date, p.start_date
-        end
-      end
-
-      if p.done_ratio_derived?
-        # done ratio = average ratio of children weighted with their total estimated hours
-        unless Issue.use_status_for_done_ratio? && p.status && p.status.default_done_ratio
-          children = p.children.to_a
-          if children.any?
-            child_with_total_estimated_hours = children.select {|c| c.total_estimated_hours.to_f > 0.0}
-            if child_with_total_estimated_hours.any?
-              average = Rational(
-                child_with_total_estimated_hours.sum(&:total_estimated_hours).to_s,
-                child_with_total_estimated_hours.count
-              )
-            else
-              average = Rational(1)
-            end
-            done = children.sum do |c|
-              estimated = Rational(c.total_estimated_hours.to_f.to_s)
-              estimated = average unless estimated > 0.0
-              ratio = c.closed? ? 100 : (c.done_ratio || 0)
-              estimated * ratio
-            end
-            progress = Rational(done, average * children.count)
-            p.done_ratio = progress.floor
-          end
-        end
-      end
-
-      # ancestors will be recursively updated
-      p.save(:validate => false)
-    end
   end
 
   # Singleton class method is public
@@ -2069,7 +1991,7 @@ class Issue < ActiveRecord::Base
       tracker.disabled_core_fields.each do |attribute|
         send "#{attribute}=", nil
       end
-      self.priority_id ||= IssuePriority.default&.id || IssuePriority.active.first.id
+      self.priority_id ||= IssuePriority.default&.id || IssuePriority.active.first&.id
       self.done_ratio ||= 0
     end
   end

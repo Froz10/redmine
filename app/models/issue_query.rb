@@ -351,7 +351,7 @@ class IssueQuery < Query
   end
 
   def base_scope
-    Issue.visible.joins(:status, :project).where(statement)
+    Issue.visible.joins(:project)
   end
 
   # Returns the issue count
@@ -386,7 +386,7 @@ class IssueQuery < Query
 
     scope = base_scope.
       preload(:priority).
-      includes(([:status, :project] + (options[:include] || [])).uniq).
+      includes(([:project] + (options[:include] || [])).uniq).
       where(options[:conditions]).
       order(order_option).
       joins(joins_for_order_statement(order_option.join(','))).
@@ -402,6 +402,7 @@ class IssueQuery < Query
       scope = scope.preload(:custom_values)
     end
 
+    #byebug
     issues = scope.to_a
 
     if has_column?(:spent_hours)

@@ -167,6 +167,8 @@ module Redmine
                   :if => Proc.new {User.current.logged?}
         menu.push :projects, {:controller => 'projects', :action => 'index'},
                   :caption => :label_project_plural
+        menu.push :issues, {:controller => 'issues', :action => 'index'},
+                  :if => Proc.new {User.current.logged?}
         menu.push :administration, {:controller => 'admin', :action => 'index'},
                   :if => Proc.new {User.current.admin?}, :last => true
         menu.push :help, Info.help_url, :html => {:target => '_blank', :rel => 'noopener'}, :last => true

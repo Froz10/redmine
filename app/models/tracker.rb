@@ -38,7 +38,6 @@ class Tracker < ActiveRecord::Base
                           :association_foreign_key => 'custom_field_id'
   acts_as_positioned
 
-  validates_presence_of :default_status
   validates_presence_of :name
   validates_uniqueness_of :name, :case_sensitive => true
   validates_length_of :name, :maximum => 30
