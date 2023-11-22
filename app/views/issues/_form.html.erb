@@ -22,6 +22,11 @@
 <p><%= f.text_field :subject, :size => 80, :maxlength => 255, :required => true %></p>
 <% end %>
 
+<p id="due_date_area">
+  <%= f.date_field(:due_date, :size => 80, :required => @issue.required_attribute?('due_date')) %>
+  <%= calendar_for('issue_due_date') %>
+</p>
+
 <% if @issue.safe_attribute? 'description' %>
 <p>
   <%= f.label_for_field :description, :required => @issue.required_attribute?('description') %>

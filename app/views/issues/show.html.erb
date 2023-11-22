@@ -56,14 +56,14 @@ end %>
 <%= render_half_width_custom_fields_rows(@issue) %>
 <%= call_hook(:view_issues_show_details_bottom, :issue => @issue) %>
 </div>
-
+<p><strong><%=l(:field_due_date)%></strong> <%= @issue.due_date %></p>
 <% if @issue.description? %>
 <hr />
 <div class="description">
   <div class="contextual">
   <%= link_to l(:button_quote), quoted_issue_path(@issue), :remote => true, :method => 'post', :class => 'icon icon-comment' if @issue.notes_addable? %>
   </div>
-
+  
   <p><strong><%=l(:field_description)%></strong></p>
   <div class="wiki">
   <%= textilizable @issue, :description, :attachments => @issue.attachments %>

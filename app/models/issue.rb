@@ -1204,7 +1204,6 @@ class Issue < ActiveRecord::Base
   # Returns a string of css classes that apply to the issue
   def css_classes(user=User.current)
     s << ' closed' if closed?
-    s << ' overdue' if overdue?
     s << ' child' if child?
     s << ' private' if is_private?
     s << ' behind-schedule' if behind_schedule?
