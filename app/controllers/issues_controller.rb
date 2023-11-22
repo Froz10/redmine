@@ -22,7 +22,7 @@ class IssuesController < ApplicationController
 
   before_action :find_issue, :only => [:show, :edit, :update, :issue_tab]
   before_action :find_issues, :only => [:bulk_edit, :bulk_update, :destroy]
-  before_action :authorize, :except => [:index, :new, :create]
+  before_action :authorize, :except => [:index, :new, :create, :show]
   before_action :find_optional_project, :only => [:index, :new, :create]
   before_action :build_new_issue_from_params, :only => [:new, :create]
   accept_atom_auth :index, :show
@@ -52,7 +52,7 @@ class IssuesController < ApplicationController
         format.html do
           @issue_count = @query.issue_count
           @issue_pages = Paginator.new @issue_count, per_page_option, params['page']
-          @issues = @query.issues(:offset => @issue_pages.offset, :limit => @issue_pages.per_page)
+          @issues = Issue.all
           render :layout => !request.xhr?
         end
         format.api do
@@ -141,10 +141,9 @@ class IssuesController < ApplicationController
     unless User.current.allowed_to?(:add_issues, @issue.project, :global => true)
       raise ::Unauthorized
     end
-    
-    @issue.save_attachments(params[:attachments]) 
     @issue = Issue.new(params[:issue].to_unsafe_hash)
-
+    @issue.save_attachments(params[:attachments]) 
+    
     if @issue.save
       respond_to do |format|
         format.html do
@@ -187,40 +186,19 @@ class IssuesController < ApplicationController
   def update
     return unless update_issue_from_params
 
-    attachments = params[:attachments] || params.dig(:issue, :uploads)
-    if @issue.attachments_addable?
-      @issue.save_attachments(attachments)
-    else
-      attachments = attachments.to_unsafe_hash if attachments.respond_to?(:to_unsafe_hash)
-      if [Hash, Array].any? { |klass| attachments.is_a?(klass) } && attachments.any?
-        flash[:warning] = l(:warning_attachments_not_saved, attachments.size)
-      end
-    end
+    issue_params = params.dig(:issue)
+    @issue = Issue.find_by(id: params[:id])
+    @issue.save_attachments(params[:attachments]) 
 
-    saved = false
-    begin
-      saved = save_issue_with_child_records
-    rescue ActiveRecord::StaleObjectError
-      @issue.detach_saved_attachments
-      @conflict = true
-      if params[:last_journal_id]
-        @conflict_journals = @issue.journals_after(params[:last_journal_id]).to_a
-        unless User.current.allowed_to?(:view_private_notes, @issue.project)
-          @conflict_journals.reject!(&:private_notes?)
-        end
-      end
-    end
-
-    if saved
+    if @issue.update issue_params.to_unsafe_hash
       render_attachment_warning_if_needed(@issue)
-      unless @issue.current_journal.new_record? || params[:no_flash]
-        flash[:notice] = l(:notice_successful_update)
-      end
+
       respond_to do |format|
         format.html do
           redirect_back_or_default(
             issue_path(@issue, previous_and_next_issue_ids_params)
           )
+          flash[:notice] = l(:notice_successful_update)
         end
         format.api  {render_api_ok}
       end
@@ -421,45 +399,8 @@ class IssuesController < ApplicationController
   def destroy
     raise Unauthorized unless @issues.all?(&:deletable?)
 
-    # all issues and their descendants are about to be deleted
-    issues_and_descendants_ids = Issue.self_and_descendants(@issues).pluck(:id)
-    time_entries = TimeEntry.where(:issue_id => issues_and_descendants_ids)
-    @hours = time_entries.sum(:hours).to_f
-
-    if @hours > 0
-      case params[:todo]
-      when 'destroy'
-        # nothing to do
-      when 'nullify'
-        if Setting.timelog_required_fields.include?('issue_id')
-          flash.now[:error] = l(:field_issue) + " " + ::I18n.t('activerecord.errors.messages.blank')
-          return
-        else
-          time_entries.update_all(:issue_id => nil)
-        end
-      when 'reassign'
-        reassign_to = @project && @project.issues.find_by_id(params[:reassign_to_id])
-        if reassign_to.nil?
-          flash.now[:error] = l(:error_issue_not_found_in_project)
-          return
-        elsif issues_and_descendants_ids.include?(reassign_to.id)
-          flash.now[:error] = l(:error_cannot_reassign_time_entries_to_an_issue_about_to_be_deleted)
-          return
-        else
-          time_entries.update_all(:issue_id => reassign_to.id, :project_id => reassign_to.project_id)
-        end
-      else
-        # display the destroy form if it's a user request
-        return unless api_request?
-      end
-    end
-    @issues.each do |issue|
-      begin
-        issue.reload.destroy
-      rescue ::ActiveRecord::RecordNotFound # raised by #reload if issue no longer exists
-        # nothing to do, issue was already deleted (eg. by a parent)
-      end
-    end
+    @issue = Issue.find_by(id: params[:id])
+    @issue.delete
     respond_to do |format|
       format.html do
         flash[:notice] = l(:notice_successful_delete)

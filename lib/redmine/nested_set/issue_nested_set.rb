@@ -25,7 +25,6 @@ module Redmine
           belongs_to :parent, :class_name => self.name
 
           before_create :add_to_nested_set, :if => lambda {|issue| issue.parent.present?}
-          before_update :handle_parent_change, :if => lambda {|issue| issue.parent_id_changed?}
           before_destroy :destroy_children
         end
         base.extend ClassMethods

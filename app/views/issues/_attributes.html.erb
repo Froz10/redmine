@@ -35,7 +35,7 @@
     <div>
       <p>
         <%= f.label :priority %>
-        <%= f.text_field :priority, :size => 41, :required => @issue.required_attribute?('priority') %>
+        <%= f.select :priority, options_for_select(["High", "Low"]), {:required => true} %>
       </p>  
     </div>  
   </div>
@@ -44,7 +44,7 @@
     <div>
       <p>
         <%= f.label :contractor %>
-        <%= f.text_field :contractor, :size => 41, :required => @issue.required_attribute?('contractor') %>
+        <%= f.select :contractor, options_for_select(["Helgi LAB LLC"]), {:required => true} %>
       </p>  
     </div>  
     <div>
@@ -74,15 +74,11 @@
     <div>
       <p>
         <%= f.label :is_plan %>
-        <%= f.select :is_plan, (["Yes", "Now"]), {:required => true} %></p>
+        <%= f.select :is_plan, options_for_select([["Yes", true], ["No", false]]), {:required => true} %></p>
       </p>  
     </div>  
   </div>
 </div>
-
-<% if @issue.safe_attribute? 'custom_field_values' %>
-<%= render :partial => 'issues/form_custom_fields' %>
-<% end %>
 
 <% end %>
 

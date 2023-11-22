@@ -739,7 +739,6 @@ class User < Principal
   #   or falls back to Non Member / Anonymous permissions depending if the user is logged
   def allowed_to?(action, context, options={}, &block)
     if context && context.is_a?(Project)
-      return false unless context.allows_to?(action)
       # Admin users are authorized for anything else
       return true if admin?
 

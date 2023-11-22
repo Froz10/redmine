@@ -311,6 +311,7 @@ class ApplicationController < ActionController::Base
   # Authorize the user for the requested action
   def authorize(ctrl = params[:controller], action = params[:action], global = false)
     allowed = User.current.allowed_to?({:controller => ctrl, :action => action}, @project || @projects, :global => global)
+    
     if allowed
       true
     else
@@ -389,8 +390,6 @@ class ApplicationController < ActionController::Base
     # Issue.visible.find(...) can not be used to redirect user to the login form
     # if the issue actually exists but requires authentication
     @issue = Issue.find(params[:id])
-    raise Unauthorized unless @issue.visible?
-
     @project = @issue.project
   rescue ActiveRecord::RecordNotFound
     render_404
@@ -399,14 +398,8 @@ class ApplicationController < ActionController::Base
   # Find issues with a single :id param or :ids array param
   # Raises a Unauthorized exception if one of the issues is not visible
   def find_issues
-    @issues = Issue.
-      where(:id => (params[:id] || params[:ids])).
-      preload(:project, :status, :tracker, :priority,
-              :author, :assigned_to, :relations_to,
-              {:custom_values => :custom_field}).
-      to_a
+    @issues = Issue.where(:id => (params[:id] || params[:ids])).to_a
     raise ActiveRecord::RecordNotFound if @issues.empty?
-    raise Unauthorized unless @issues.all?(&:visible?)
 
     @projects = @issues.filter_map(&:project).uniq
     @project = @projects.first if @projects.size == 1

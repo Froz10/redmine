@@ -311,6 +311,16 @@ en:
   field_due_date: Due date
   field_assigned_to: Assignee
   field_priority: Priority
+  field_tags: Tags
+  field_price: Price
+  field_number_of_task: Number of task
+  field_contractor: Contractor
+  field_is_plan: Is plan?
+  field_executor: Executor
+  field_customer: Customer
+  field_remaining_amount_plan: Remaining amount plan
+  field_remaining_amount_fact: Remaining amount fact
+  field_nmck: NMCK
   field_fixed_version: Target version
   field_user: User
   field_principal: User or Group

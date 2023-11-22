@@ -40,14 +40,18 @@
 
 <div class="attributes">
 <%= issue_fields_rows do |rows|
-  rows.left l(:field_status), @issue.status&.name, :class => 'status'
-
-  unless @issue.disabled_core_fields.include?('priority_id')
-    rows.left l(:field_priority), @issue.priority, :class => 'priority'
-  end
-  unless @issue.disabled_core_fields.include?('assigned_to_id')
-    rows.left l(:field_assigned_to), @issue.status, :class => 'assigned-to'
-  end
+  rows.left l(:field_status), @issue.status
+  rows.left l(:field_priority), @issue.priority
+  rows.left l(:field_tags), @issue.tags
+  rows.left l(:field_price), @issue.price
+  rows.left l(:field_number_of_task), @issue.number_of_task
+  rows.left l(:field_contractor), @issue.contractor
+  rows.right l(:field_nmck), @issue.nmck
+  rows.right l(:field_remaining_amount_plan), @issue.remaining_amount_plan
+  rows.right l(:field_remaining_amount_fact), @issue.remaining_amount_fact
+  rows.right l(:field_is_plan), @issue.is_plan ? "Yes" : "No"
+  rows.right l(:field_executor), @issue.executor
+  rows.right l(:field_customer), @issue.customer
 end %>
 <%= render_half_width_custom_fields_rows(@issue) %>
 <%= call_hook(:view_issues_show_details_bottom, :issue => @issue) %>

@@ -24,6 +24,9 @@ class Issue < ActiveRecord::Base
   include Redmine::NestedSet::IssueNestedSet
 
   belongs_to :project
+  belongs_to :assigned_to, :class_name => 'Principal'
+  belongs_to :fixed_version, :class_name => 'Version'
+  belongs_to :category, :class_name => 'IssueCategory'
 
   has_many :journals, :as => :journalized, :dependent => :destroy, :inverse_of => :journalized
   has_many :time_entries, :dependent => :destroy
@@ -94,7 +97,6 @@ class Issue < ActiveRecord::Base
   end)
 
   before_validation :default_assign, on: :create
-  before_validation :clear_disabled_fields
   
   # add_auto_watcher needs to run before sending notifications, thus it needs
   # to be added after send_notification (after_ callbacks are run in inverse order)
@@ -239,123 +241,6 @@ class Issue < ActiveRecord::Base
     base_reload(*args)
   end
 
-  # Overrides Redmine::Acts::Customizable::InstanceMethods#available_custom_fields
-  def available_custom_fields
-    []
-  end
-
-  def visible_custom_field_values(user=nil)
-    user_real = user || User.current
-    custom_field_values.select do |value|
-      value.custom_field.visible_by?(project, user_real)
-    end
-  end
-
-  # Overrides Redmine::Acts::Customizable::InstanceMethods#set_custom_field_default?
-  def set_custom_field_default?(custom_value)
-    new_record? || project_id_changed?|| tracker_id_changed?
-  end
-
-  # Copies attributes from another issue, arg can be an id or an Issue
-  def copy_from(arg, options={})
-    issue = arg.is_a?(Issue) ? arg : Issue.visible.find(arg)
-    self.attributes =
-      issue.attributes.dup.except(
-        "id", "root_id", "parent_id", "lft", "rgt",
-        "created_on", "updated_on", "status_id", "closed_on"
-      )
-    self.custom_field_values =
-      issue.custom_field_values.inject({}) do |h, v|
-        h[v.custom_field_id] = v.value
-        h
-      end
-    if options[:keep_status]
-      self.status = issue.status
-    end
-    self.author = User.current
-    unless options[:attachments] == false
-      self.attachments = issue.attachments.map do |attachement|
-        attachement.copy(:container => self)
-      end
-    end
-    unless options[:watchers] == false
-      self.watcher_user_ids =
-        issue.watcher_users.select{|u| u.status == User::STATUS_ACTIVE}.map(&:id)
-    end
-    @copied_from = issue
-    @copy_options = options
-    self
-  end
-
-  # Returns an unsaved copy of the issue
-  def copy(attributes=nil, copy_options={})
-    copy = self.class.new.copy_from(self, copy_options)
-    copy.attributes = attributes if attributes
-    copy
-  end
-
-  # Returns true if the issue is a copy
-  def copy?
-    @copied_from.present?
-  end
-
-  def status_id=(status_id)
-    if status_id.to_s != self.status_id.to_s
-      self.status = (status_id.present? ? IssueStatus.find_by_id(status_id) : nil)
-    end
-    self.status_id
-  end
-
-  # Sets the status.
-  def status=(status)
-    if status != self.status
-      @workflow_rule_by_attribute = nil
-    end
-  end
-
-  def priority_id=(pid)
-    self.priority = nil
-    write_attribute(:priority_id, pid)
-  end
-
-  def category_id=(cid)
-    self.category = nil
-    write_attribute(:category_id, cid)
-  end
-
-  def fixed_version_id=(vid)
-    self.fixed_version = nil
-    write_attribute(:fixed_version_id, vid)
-  end
-
-  def tracker_id=(tracker_id)
-    if tracker_id.to_s != self.tracker_id.to_s
-      self.tracker = (tracker_id.present? ? Tracker.find_by_id(tracker_id) : nil)
-    end
-    self.tracker_id
-  end
-
-  # Sets the tracker.
-  # This will set the status to the default status of the new tracker if:
-  # * the status was the default for the previous tracker
-  # * or if the status was not part of the new tracker statuses
-  # * or the status was nil
-  def tracker=(tracker)
-    tracker_was = self.tracker
-    association(:tracker).writer(tracker)
-    if tracker != tracker_was
-      if status == tracker_was.try(:default_status)
-        self.status = nil
-      elsif status && tracker && !tracker.issue_status_ids.include?(status.id)
-        self.status = nil
-      end
-      reassign_custom_field_values
-      @workflow_rule_by_attribute = nil
-    end
-    self.status ||= default_status
-    self.tracker
-  end
-
   def project_id=(project_id)
     if project_id.to_s != self.project_id.to_s
       self.project = (project_id.present? ? Project.find_by_id(project_id) : nil)
@@ -407,6 +292,11 @@ class Issue < ActiveRecord::Base
       @workflow_rule_by_attribute = nil
     end
     # Set fixed_version to the project default version if it's valid
+    if new_record? && fixed_version.nil? && project && project.default_version_id?
+      if project.shared_versions.open.exists?(project.default_version_id)
+        self.fixed_version_id = project.default_version_id
+      end
+    end
     self.project
   end
 
@@ -543,18 +433,6 @@ class Issue < ActiveRecord::Base
         self.tracker_id = t
       end
     end
-    if project && tracker.nil?
-      # Set a default tracker to accept custom field values
-      # even if tracker is not specified
-      allowed_trackers = allowed_target_trackers(user)
-
-      if attrs['parent_issue_id'].present?
-        # If parent_issue_id is present, the first tracker for which this field
-        # is not disabled is chosen as default
-        self.tracker = allowed_trackers.detect {|t| t.core_fields.include?('parent_issue_id')}
-      end
-      self.tracker ||= allowed_trackers.first
-    end
 
     statuses_allowed = new_statuses_allowed_to(user)
     if (s = attrs.delete('status_id')) && safe_attribute?('status_id')
@@ -596,12 +474,6 @@ class Issue < ActiveRecord::Base
   end
 
   # Returns the custom_field_values that can be edited by the given user
-  def editable_custom_field_values(user=nil)
-    read_only = read_only_attribute_names(user)
-    visible_custom_field_values(user).reject do |value|
-      read_only.include?(value.custom_field_id.to_s)
-    end
-  end
 
   # Returns the custom fields that can be edited by the given user
   def editable_custom_fields(user=nil)
@@ -775,7 +647,7 @@ class Issue < ActiveRecord::Base
 
   # Validates the issue against additional workflow requirements
   def validate_required_fields
-    user = current_journal.try(:user) if new_record?
+    user = new_record? ? author : current_journal.try(:user)
 
     required_attribute_names(user).each do |attribute|
       if /^\d+$/.match?(attribute)
@@ -807,12 +679,6 @@ class Issue < ActiveRecord::Base
   # so that custom values that are not editable are not validated (eg. a custom field that
   # is marked as required should not trigger a validation error if the user is not allowed
   # to edit this field).
-  def validate_custom_field_values
-    user = current_journal.try(:user) if new_record?
-    if new_record? || custom_field_values_changed?
-      editable_custom_field_values(user).each(&:validate_value)
-    end
-  end
 
   # Set the done_ratio using the status if that setting is set.  This will keep the done_ratios
   # even if the user turns off the setting later
@@ -839,9 +705,6 @@ class Issue < ActiveRecord::Base
   # Returns the names of attributes that are journalized when updating the issue
   def journalized_attribute_names
     names = Issue.column_names - %w(id root_id lft rgt lock_version created_on updated_on closed_on)
-    if tracker
-      names -= tracker.disabled_core_fields
-    end
     names
   end
 
@@ -891,12 +754,12 @@ class Issue < ActiveRecord::Base
 
   # Return true if the issue is closed, otherwise false
   def closed?
-    status.present? && status.is_closed?
+    false
   end
 
   # Returns true if the issue was closed when loaded
   def was_closed?
-    status_was.present? && status_was.is_closed?
+    false
   end
 
   # Return true if the issue is being reopened
@@ -1000,27 +863,7 @@ class Issue < ActiveRecord::Base
 
   # Returns an array of statuses that user is able to apply
   def new_statuses_allowed_to(user=User.current, include_default=false)
-    initial_status = nil
-    if new_record?
-      # nop
-    else
-      initial_status = status_was
-    end
-
     statuses = []
-    statuses << initial_status unless statuses.empty?
-    statuses << default_status if include_default || (new_record? && statuses.empty?)
-
-    statuses = statuses.compact.uniq.sort
-    unless closable?
-      # cannot close a blocked issue or a parent with open subtasks
-      statuses.reject!(&:is_closed?)
-    end
-    unless reopenable?
-      # cannot reopen a subtask of a closed parent
-      statuses.select!(&:is_closed?)
-    end
-    statuses
   end
 
   # Returns the original tracker
@@ -1786,7 +1629,13 @@ class Issue < ActiveRecord::Base
 
   # Default assignment based on project or category
   def default_assign
-    nil
+    if assigned_to.nil?
+      if category && category.assigned_to
+        self.assigned_to = category.assigned_to
+      elsif project && project.default_assigned_to
+        self.assigned_to = project.default_assigned_to
+      end
+    end
   end
 
   # Updates start/due dates of following issues
@@ -1893,10 +1742,6 @@ class Issue < ActiveRecord::Base
     if notify? && Setting.notified_events.include?('issue_added')
       Mailer.deliver_issue_add(self)
     end
-  end
-
-  def clear_disabled_fields
-    nil
   end
 
   def filter_projects_scope(scope=nil)
