@@ -1,4 +1,4 @@
-<h2><%= @issue.tracker %> #<%= @issue.id %></h2>
+<h2>#<%= @issue.id %></h2>
 <p><%= authoring @journal.created_on, @journal.user, :label => :label_updated_time_by %></p>
 
 <pre class="text-diff"><%= @diff.to_html %></pre>
@@ -8,4 +8,4 @@
               :onclick => 'if (document.referrer != "") {history.back(); return false;}') %>
 </p>
 
-<% html_title "#{@issue.tracker.name} ##{@issue.id}: #{@issue.subject}" %>
+<% html_title "#{@issue.status} ##{@issue.id}: #{@issue.subject}" %>

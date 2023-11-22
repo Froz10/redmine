@@ -516,7 +516,7 @@ module ApplicationHelper
   # Returns the default scope for the quick search form
   # Could be 'all', 'my_projects', 'subprojects' or nil (current project)
   def default_search_project_scope
-    if @project && !@project.leaf?
+    if @project
       'subprojects'
     end
   end

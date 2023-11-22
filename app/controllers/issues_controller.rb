@@ -102,11 +102,6 @@ class IssuesController < ApplicationController
         end
     @journals.reverse! if User.current.wants_comments_in_reverse_order?
 
-    if User.current.allowed_to?(:view_time_entries, @project)
-      Issue.load_visible_spent_hours([@issue])
-      Issue.load_visible_total_spent_hours([@issue])
-    end
-
     respond_to do |format|
       format.html do
         @allowed_statuses = @issue.new_statuses_allowed_to(User.current)
@@ -146,11 +141,11 @@ class IssuesController < ApplicationController
     unless User.current.allowed_to?(:add_issues, @issue.project, :global => true)
       raise ::Unauthorized
     end
+    
+    @issue.save_attachments(params[:attachments]) 
+    @issue = Issue.new(params[:issue].to_unsafe_hash)
 
-    call_hook(:controller_issues_new_before_save, {:params => params, :issue => @issue})
-    @issue.save_attachments(params[:attachments] || (params[:issue] && params[:issue][:uploads]))
     if @issue.save
-      call_hook(:controller_issues_new_after_save, {:params => params, :issue => @issue})
       respond_to do |format|
         format.html do
           render_attachment_warning_if_needed(@issue)
@@ -520,15 +515,6 @@ class IssuesController < ApplicationController
       if @query
         @per_page = per_page_option
         limit = 500
-        issue_ids = @query.issue_ids(:limit => (limit + 1))
-        if (idx = issue_ids.index(@issue.id)) && idx < limit
-          if issue_ids.size < 500
-            @issue_position = idx + 1
-            @issue_count = issue_ids.size
-          end
-          @prev_issue_id = issue_ids[idx - 1] if idx > 0
-          @next_issue_id = issue_ids[idx + 1] if idx < (issue_ids.size - 1)
-        end
         query_params = @query.as_params
         if @issue_position
           query_params = query_params.merge(:page => (@issue_position / per_page_option) + 1, :per_page => per_page_option)
@@ -607,7 +593,6 @@ class IssuesController < ApplicationController
     if request.get?
       @issue.project ||= @issue.allowed_target_projects.first
     end
-    @issue.author ||= User.current
     @issue.start_date ||= User.current.today if Setting.default_issue_start_date_to_creation_date?
 
     attrs = (params[:issue] || {}).deep_dup

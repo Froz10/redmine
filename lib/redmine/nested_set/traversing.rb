@@ -29,7 +29,7 @@ module Redmine
 
       # Returns true if the element has no parent
       def root?
-        parent_id.nil?
+        true
       end
 
       # Returns true if the element has a parent
@@ -38,9 +38,6 @@ module Redmine
       end
 
       # Returns true if the element has no children
-      def leaf?
-        new_record? || (rgt - lft == 1)
-      end
 
       # Returns the root element (ancestor with no parent)
       def root
@@ -50,7 +47,7 @@ module Redmine
       # Returns the children
       def children
         if id.nil?
-          nested_set_scope.none
+          nested_set_scope&.none
         else
           self.class.order(:lft).where(:parent_id => id)
         end
@@ -69,7 +66,7 @@ module Redmine
       # Returns the ancestors
       def ancestors
         if root?
-          nested_set_scope.none
+          nested_set_scope&.none
         else
           nested_set_scope.where("#{self.class.table_name}.lft < ? AND #{self.class.table_name}.rgt > ?", lft, rgt)
         end
@@ -92,16 +89,12 @@ module Redmine
 
       # Returns the descendants
       def descendants
-        if leaf?
-          nested_set_scope.none
-        else
-          nested_set_scope.where("#{self.class.table_name}.lft > ? AND #{self.class.table_name}.rgt < ?", lft, rgt)
-        end
+        nested_set_scope&.where("#{self.class.table_name}.lft > ? AND #{self.class.table_name}.rgt < ?", lft, rgt)
       end
 
       # Returns the element and its descendants
       def self_and_descendants
-        nested_set_scope.where("#{self.class.table_name}.lft >= ? AND #{self.class.table_name}.rgt <= ?", lft, rgt)
+        nested_set_scope&.where("#{self.class.table_name}.lft >= ? AND #{self.class.table_name}.rgt <= ?", lft, rgt)
       end
 
       # Returns true if the element is a descendant of other

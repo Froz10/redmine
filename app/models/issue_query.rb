@@ -144,141 +144,6 @@ class IssueQuery < Query
     self
   end
 
-  def initialize_available_filters
-    add_available_filter(
-      "status_id",
-      :type => :list_status, :values => lambda {issue_statuses_values}
-    )
-    add_available_filter(
-      "project_id",
-      :type => :list, :values => lambda {project_values}
-    ) if project.nil?
-    add_available_filter(
-      "tracker_id",
-      :type => :list_with_history, :values => trackers.collect{|s| [s.name, s.id.to_s]}
-    )
-    add_available_filter(
-      "priority_id",
-      :type => :list_with_history, :values => IssuePriority.all.collect{|s| [s.name, s.id.to_s]}
-    )
-    add_available_filter(
-      "author_id",
-      :type => :list, :values => lambda {author_values}
-    )
-    add_available_filter(
-      "assigned_to_id",
-      :type => :list_optional_with_history, :values => lambda {assigned_to_values}
-    )
-    add_available_filter(
-      "member_of_group",
-      :type => :list_optional, :values => lambda {Group.givable.visible.collect {|g| [g.name, g.id.to_s]}}
-    )
-    add_available_filter(
-      "assigned_to_role",
-      :type => :list_optional, :values => lambda {Role.givable.collect {|r| [r.name, r.id.to_s]}}
-    )
-    add_available_filter(
-      "fixed_version_id",
-      :type => :list_optional_with_history, :values => lambda {fixed_version_values}
-    )
-    add_available_filter(
-      "fixed_version.due_date",
-      :type => :date,
-      :name => l(:label_attribute_of_fixed_version, :name => l(:field_effective_date))
-    )
-    add_available_filter(
-      "fixed_version.status",
-      :type => :list,
-      :name => l(:label_attribute_of_fixed_version, :name => l(:field_status)),
-      :values => Version::VERSION_STATUSES.map{|s| [l("version_status_#{s}"), s]}
-    )
-    add_available_filter(
-      "category_id",
-      :type => :list_optional_with_history,
-      :values => lambda {project.issue_categories.collect{|s| [s.name, s.id.to_s]}}
-    ) if project
-    add_available_filter "subject", :type => :text
-    add_available_filter "description", :type => :text
-    add_available_filter "notes", :type => :text
-    add_available_filter "created_on", :type => :date_past
-    add_available_filter "updated_on", :type => :date_past
-    add_available_filter "closed_on", :type => :date_past
-    add_available_filter "start_date", :type => :date
-    add_available_filter "due_date", :type => :date
-    add_available_filter "estimated_hours", :type => :float
-
-    if User.current.allowed_to?(:view_time_entries, project, :global => true)
-      add_available_filter "spent_time", :type => :float, :label => :label_spent_time
-    end
-
-    add_available_filter "done_ratio", :type => :integer
-
-    if User.current.allowed_to?(:set_issues_private, nil, :global => true) ||
-      User.current.allowed_to?(:set_own_issues_private, nil, :global => true)
-      add_available_filter(
-        "is_private",
-        :type => :list,
-        :values => [[l(:general_text_yes), "1"], [l(:general_text_no), "0"]]
-      )
-    end
-    add_available_filter(
-      "attachment",
-      :type => :text, :name => l(:label_attachment)
-    )
-    add_available_filter(
-      "attachment_description",
-      :type => :text, :name => l(:label_attachment_description)
-    )
-    if User.current.logged?
-      add_available_filter(
-        "watcher_id",
-        :type => :list, :values => lambda {watcher_values}
-      )
-    end
-    add_available_filter(
-      "updated_by",
-      :type => :list, :values => lambda {author_values}
-    )
-    add_available_filter(
-      "last_updated_by",
-      :type => :list, :values => lambda {author_values}
-    )
-    if project && !project.leaf?
-      add_available_filter(
-        "subproject_id",
-        :type => :list_subprojects,
-        :values => lambda {subproject_values}
-      )
-    end
-
-    add_available_filter(
-      "project.status",
-      :type => :list,
-      :name => l(:label_attribute_of_project, :name => l(:field_status)),
-      :values => lambda {project_statuses_values}
-    ) if project.nil? || !project.leaf?
-
-    add_custom_fields_filters(issue_custom_fields)
-    add_associations_custom_fields_filters :project, :author, :assigned_to, :fixed_version
-
-    IssueRelation::TYPES.each do |relation_type, options|
-      add_available_filter(
-        relation_type, :type => :relation, :label => options[:name],
-        :values => lambda {all_projects_values}
-      )
-    end
-    add_available_filter "parent_id", :type => :tree, :label => :field_parent_issue
-    add_available_filter "child_id", :type => :tree, :label => :label_subtask_plural
-
-    add_available_filter "issue_id", :type => :integer, :label => :label_issue
-
-    add_available_filter "any_searchable", :type => :search
-
-    Tracker.disabled_core_fields(trackers).each do |field|
-      delete_available_filter field
-    end
-  end
-
   def available_columns
     return @available_columns if @available_columns
 
@@ -323,12 +188,6 @@ class IssueQuery < Query
       @available_columns <<
         QueryColumn.new(:is_private,
                         :sortable => "#{Issue.table_name}.is_private", :groupable => true)
-    end
-
-    disabled_fields = Tracker.disabled_core_fields(trackers).map {|field| field.sub(/_id$/, '')}
-    disabled_fields << "total_estimated_hours" if disabled_fields.include?("estimated_hours")
-    @available_columns.reject! do |column|
-      disabled_fields.include?(column.name.to_s)
     end
 
     @available_columns
@@ -385,24 +244,13 @@ class IssueQuery < Query
     end
 
     scope = base_scope.
-      preload(:priority).
       includes(([:project] + (options[:include] || [])).uniq).
       where(options[:conditions]).
       order(order_option).
       joins(joins_for_order_statement(order_option.join(','))).
       limit(options[:limit]).
       offset(options[:offset])
-
-    scope =
-      scope.preload(
-        [:tracker, :author, :assigned_to, :fixed_version,
-         :category, :attachments] & columns.map(&:name)
-      )
-    if has_custom_field_column?
-      scope = scope.preload(:custom_values)
-    end
-
-    #byebug
+    
     issues = scope.to_a
 
     if has_column?(:spent_hours)
@@ -426,25 +274,6 @@ class IssueQuery < Query
   end
 
   # Returns the issues ids
-  def issue_ids(options={})
-    order_option = [group_by_sort_order, (options[:order] || sort_clause)].flatten.reject(&:blank?)
-    # The default order of IssueQuery is issues.id DESC(by IssueQuery#default_sort_criteria)
-    unless ["#{Issue.table_name}.id ASC", "#{Issue.table_name}.id DESC"].any?{|i| order_option.include?(i)}
-      order_option << "#{Issue.table_name}.id DESC"
-    end
-
-    base_scope.
-      includes(([:status, :project] + (options[:include] || [])).uniq).
-      references(([:status, :project] + (options[:include] || [])).uniq).
-      where(options[:conditions]).
-      order(order_option).
-      joins(joins_for_order_statement(order_option.join(','))).
-      limit(options[:limit]).
-      offset(options[:offset]).
-      pluck(:id)
-  rescue ::ActiveRecord::StatementInvalid => e
-    raise StatementInvalid.new(e.message)
-  end
 
   # Returns the journals
   # Valid options are :order, :offset, :limit

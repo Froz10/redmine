@@ -653,17 +653,13 @@ class Project < ActiveRecord::Base
   # Returns a scope of all custom fields enabled for issues of the project
   # and its subprojects
   def rolled_up_custom_fields
-    if leaf?
-      all_issue_custom_fields
-    else
-      @rolled_up_custom_fields ||= IssueCustomField.
-        sorted.
-        where("is_for_all = ? OR EXISTS (SELECT 1" +
-          " FROM #{table_name_prefix}custom_fields_projects#{table_name_suffix} cfp" +
-          " JOIN #{Project.table_name} p ON p.id = cfp.project_id" +
-          " WHERE cfp.custom_field_id = #{CustomField.table_name}.id" +
-          " AND p.lft >= ? AND p.rgt <= ?)", true, lft, rgt)
-    end
+    @rolled_up_custom_fields ||= IssueCustomField.
+      sorted.
+      where("is_for_all = ? OR EXISTS (SELECT 1" +
+        " FROM #{table_name_prefix}custom_fields_projects#{table_name_suffix} cfp" +
+        " JOIN #{Project.table_name} p ON p.id = cfp.project_id" +
+        " WHERE cfp.custom_field_id = #{CustomField.table_name}.id" +
+        " AND p.lft >= ? AND p.rgt <= ?)", true, lft, rgt)
   end
 
   def project
@@ -689,7 +685,6 @@ class Project < ActiveRecord::Base
     s = +'project'
     s << ' root' if root?
     s << ' child' if child?
-    s << (leaf? ? ' leaf' : ' parent')
     s << ' public' if is_public?
     unless active?
       if archived?

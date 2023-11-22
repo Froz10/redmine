@@ -37,7 +37,7 @@ class Redmine::Views::LabelledFormBuilder < ActionView::Helpers::FormBuilder
   end
 
   def select(field, choices, options = {}, html_options = {})
-    label_for_field(field, options) + super(field, choices, options, html_options.except(:label)).html_safe
+    
   end
 
   def time_zone_select(field, priority_zones = nil, options = {}, html_options = {})

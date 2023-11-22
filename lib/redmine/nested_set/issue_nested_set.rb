@@ -25,7 +25,6 @@ module Redmine
           belongs_to :parent, :class_name => self.name
 
           before_create :add_to_nested_set, :if => lambda {|issue| issue.parent.present?}
-          after_create :add_as_root, :if => lambda {|issue| issue.parent.blank?}
           before_update :handle_parent_change, :if => lambda {|issue| issue.parent_id_changed?}
           before_destroy :destroy_children
         end
@@ -200,7 +199,7 @@ module Redmine
       end
 
       def nested_set_scope
-        self.class.order(:lft).where(:root_id => root_id)
+        nil
       end
 
       def same_nested_set_scope?(issue)

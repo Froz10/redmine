@@ -21,17 +21,9 @@ class Issue < ActiveRecord::Base
   include Redmine::SafeAttributes
   include Redmine::Utils::DateCalculation
   include Redmine::I18n
-  before_save :set_parent_id
   include Redmine::NestedSet::IssueNestedSet
 
   belongs_to :project
-  belongs_to :tracker
-  belongs_to :status, :class_name => 'IssueStatus'
-  belongs_to :author, :class_name => 'User'
-  belongs_to :assigned_to, :class_name => 'Principal'
-  belongs_to :fixed_version, :class_name => 'Version'
-  belongs_to :priority, :class_name => 'IssuePriority'
-  belongs_to :category, :class_name => 'IssueCategory'
 
   has_many :journals, :as => :journalized, :dependent => :destroy, :inverse_of => :journalized
   has_many :time_entries, :dependent => :destroy
@@ -103,17 +95,7 @@ class Issue < ActiveRecord::Base
 
   before_validation :default_assign, on: :create
   before_validation :clear_disabled_fields
-  before_save :close_duplicates, :update_done_ratio_from_issue_status,
-              :force_updated_on_change, :update_closed_on
-  after_save do |issue|
-    if !issue.saved_change_to_id? && issue.saved_change_to_project_id?
-      issue.send :after_project_change
-    end
-  end
-  after_save :reschedule_following_issues, :update_nested_set_attributes,
-                            :delete_selected_attachments, :create_journal
-  # Should be after_create but would be called before previous after_save callbacks
-  after_save :after_create_from_copy
+  
   # add_auto_watcher needs to run before sending notifications, thus it needs
   # to be added after send_notification (after_ callbacks are run in inverse order)
   # https://api.rubyonrails.org/v5.2.3/classes/ActiveSupport/Callbacks/ClassMethods.html#method-i-set_callback
@@ -218,7 +200,6 @@ class Issue < ActiveRecord::Base
     super
     if new_record?
       # set default values for new records only
-      self.priority ||= IssuePriority.default
       self.watcher_user_ids = []
     end
   end
@@ -260,7 +241,7 @@ class Issue < ActiveRecord::Base
 
   # Overrides Redmine::Acts::Customizable::InstanceMethods#available_custom_fields
   def available_custom_fields
-    (project && tracker) ? (project.all_issue_custom_fields & tracker.custom_fields) : []
+    []
   end
 
   def visible_custom_field_values(user=nil)
@@ -330,7 +311,6 @@ class Issue < ActiveRecord::Base
     if status != self.status
       @workflow_rule_by_attribute = nil
     end
-    association(:status).writer(status)
   end
 
   def priority_id=(pid)
@@ -427,11 +407,6 @@ class Issue < ActiveRecord::Base
       @workflow_rule_by_attribute = nil
     end
     # Set fixed_version to the project default version if it's valid
-    if new_record? && fixed_version.nil? && project && project.default_version_id?
-      if project.shared_versions.open.exists?(project.default_version_id)
-        self.fixed_version_id = project.default_version_id
-      end
-    end
     self.project
   end
 
@@ -500,7 +475,7 @@ class Issue < ActiveRecord::Base
     'is_private',
     :if => lambda do |issue, user|
       user.allowed_to?(:set_issues_private, issue.project) ||
-        (issue.author_id == user.id && user.allowed_to?(:set_own_issues_private, issue.project))
+        (issue == user.id && user.allowed_to?(:set_own_issues_private, issue.project))
     end)
   safe_attributes(
     'parent_issue_id',
@@ -617,7 +592,7 @@ class Issue < ActiveRecord::Base
   end
 
   def disabled_core_fields
-    tracker ? tracker.disabled_core_fields : []
+    []
   end
 
   # Returns the custom_field_values that can be edited by the given user
@@ -800,7 +775,7 @@ class Issue < ActiveRecord::Base
 
   # Validates the issue against additional workflow requirements
   def validate_required_fields
-    user = new_record? ? author : current_journal.try(:user)
+    user = current_journal.try(:user) if new_record?
 
     required_attribute_names(user).each do |attribute|
       if /^\d+$/.match?(attribute)
@@ -833,7 +808,7 @@ class Issue < ActiveRecord::Base
   # is marked as required should not trigger a validation error if the user is not allowed
   # to edit this field).
   def validate_custom_field_values
-    user = new_record? ? author : current_journal.try(:user)
+    user = current_journal.try(:user) if new_record?
     if new_record? || custom_field_values_changed?
       editable_custom_field_values(user).each(&:validate_value)
     end
@@ -911,13 +886,7 @@ class Issue < ActiveRecord::Base
   # Returns the initial status of the issue
   # Returns nil for a new issue
   def status_was
-    if status_id_changed?
-      if status_id_was.to_i > 0
-        @status_was ||= IssueStatus.find_by_id(status_id_was)
-      end
-    else
-      @status_was ||= status
-    end
+    @status_was ||= status
   end
 
   # Return true if the issue is closed, otherwise false
@@ -973,9 +942,6 @@ class Issue < ActiveRecord::Base
 
     users = project.assignable_users(tracker).to_a
     users << author if author && author.active?
-    if assigned_to_id_was.present? && assignee = Principal.find_by_id(assigned_to_id_was)
-      users << assignee
-    end
     users.uniq.sort
   end
 
@@ -1006,7 +972,7 @@ class Issue < ActiveRecord::Base
 
   # Returns true if this issue can be closed and if not, returns false and populates the reason
   def closable?
-    if descendants.open.any?
+    if descendants&.open&.any?
       @transition_warning = l(:notice_issue_not_closable_by_open_tasks)
       return false
     end
@@ -1019,7 +985,7 @@ class Issue < ActiveRecord::Base
 
   # Returns true if this issue can be reopen and if not, returns false and populates the reason
   def reopenable?
-    if ancestors.open(false).any?
+    if ancestors&.open(false)&.any?
       @transition_warning = l(:notice_issue_not_reopenable_by_closed_parent_issue)
       return false
     end
@@ -1029,7 +995,7 @@ class Issue < ActiveRecord::Base
   # Returns the default status of the issue based on its tracker
   # Returns nil if tracker is nil
   def default_status
-    tracker.try(:default_status)
+    nil
   end
 
   # Returns an array of statuses that user is able to apply
@@ -1037,30 +1003,11 @@ class Issue < ActiveRecord::Base
     initial_status = nil
     if new_record?
       # nop
-    elsif tracker_id_changed?
-      if Tracker.where(:id => tracker_id_was, :default_status_id => status_id_was).any?
-        initial_status = default_status
-      elsif tracker.issue_status_ids.include?(status_id_was)
-        initial_status = IssueStatus.find_by_id(status_id_was)
-      else
-        initial_status = default_status
-      end
     else
       initial_status = status_was
     end
 
-    initial_assigned_to_id = assigned_to_id_changed? ? assigned_to_id_was : assigned_to_id
-    assignee_transitions_allowed = initial_assigned_to_id.present? &&
-      (user.id == initial_assigned_to_id || user.group_ids.include?(initial_assigned_to_id))
-
     statuses = []
-    statuses += IssueStatus.new_statuses_allowed(
-      initial_status,
-      roles_for_workflow(user),
-      tracker,
-      author == user,
-      assignee_transitions_allowed
-    )
     statuses << initial_status unless statuses.empty?
     statuses << default_status if include_default || (new_record? && statuses.empty?)
 
@@ -1133,19 +1080,11 @@ class Issue < ActiveRecord::Base
   # Returns the total number of hours spent on this issue and its descendants
   def total_spent_hours
     @total_spent_hours ||=
-      if leaf?
-        spent_hours
-      else
-        self_and_descendants.joins(:time_entries).sum("#{TimeEntry.table_name}.hours").to_f || 0.0
-      end
+      self_and_descendants&.joins(:time_entries)&.sum("#{TimeEntry.table_name}.hours").to_f || 0.0
   end
 
   def total_estimated_hours
-    if leaf?
-      estimated_hours
-    else
-      @total_estimated_hours ||= self_and_descendants.visible.sum(:estimated_hours)
-    end
+    @total_estimated_hours ||= self_and_descendants&.visible&.sum(:estimated_hours)
   end
 
   def relations
@@ -1190,19 +1129,6 @@ class Issue < ActiveRecord::Base
       hours_by_issue_id = TimeEntry.visible(user).where(:issue_id => issues.map(&:id)).group(:issue_id).sum(:hours)
       issues.each do |issue|
         issue.instance_variable_set :@spent_hours, (hours_by_issue_id[issue.id] || 0.0)
-      end
-    end
-  end
-
-  # Preloads visible total spent time for a collection of issues
-  def self.load_visible_total_spent_hours(issues, user=User.current)
-    if issues.any?
-      hours_by_issue_id = TimeEntry.visible(user).joins(:issue).
-        joins("JOIN #{Issue.table_name} parent ON parent.root_id = #{Issue.table_name}.root_id" +
-          " AND parent.lft <= #{Issue.table_name}.lft AND parent.rgt >= #{Issue.table_name}.rgt").
-        where("parent.id IN (?)", issues.map(&:id)).group("parent.id").sum(:hours)
-      issues.each do |issue|
-        issue.instance_variable_set :@total_spent_hours, (hours_by_issue_id[issue.id] || 0.0)
       end
     end
   end
@@ -1373,7 +1299,7 @@ class Issue < ActiveRecord::Base
   def reschedule_on!(date, journal=nil)
     return if date.nil?
 
-    if leaf? || !dates_derived?
+    if !dates_derived?
       if start_date.nil? || start_date != date
         if start_date && start_date > date
           # Issue can not be moved earlier than its soonest start date
@@ -1407,15 +1333,15 @@ class Issue < ActiveRecord::Base
   end
 
   def dates_derived?
-    !leaf? && Setting.parent_issue_dates == 'derived'
+    Setting.parent_issue_dates == 'derived'
   end
 
   def priority_derived?
-    !leaf? && Setting.parent_issue_priority == 'derived'
+    Setting.parent_issue_priority == 'derived'
   end
 
   def done_ratio_derived?
-    !leaf? && Setting.parent_issue_done_ratio == 'derived'
+    Setting.parent_issue_done_ratio == 'derived'
   end
 
   def <=>(issue)
@@ -1434,19 +1360,14 @@ class Issue < ActiveRecord::Base
 
   # Returns a string of css classes that apply to the issue
   def css_classes(user=User.current)
-    s = +"issue tracker-#{tracker_id} status-#{status_id} #{priority.try(:css_classes)}"
     s << ' closed' if closed?
     s << ' overdue' if overdue?
     s << ' child' if child?
-    s << ' parent' unless leaf?
     s << ' private' if is_private?
     s << ' behind-schedule' if behind_schedule?
     if user.logged?
-      s << ' created-by-me' if author_id == user.id
-      s << ' assigned-to-me' if assigned_to_id == user.id
       s << ' assigned-to-my-group' if user.groups.any? {|g| g.id == assigned_to_id}
     end
-    s
   end
 
   # Unassigns issues from +version+ if it's no longer shared with issue's project
@@ -1483,18 +1404,12 @@ class Issue < ActiveRecord::Base
   def parent_issue_id
     if @invalid_parent_issue_id
       @invalid_parent_issue_id
-    elsif instance_variable_defined? :@parent_issue
+    else instance_variable_defined? :@parent_issue
       @parent_issue.nil? ? nil : @parent_issue.id
-    else
-      parent_id
     end
   end
 
   alias :parent_issue :parent
-
-  def set_parent_id
-    self.parent_id = parent_issue_id
-  end
 
   # Returns true if issue's project is a valid
   # parent issue project
@@ -1636,7 +1551,7 @@ class Issue < ActiveRecord::Base
 
   # Returns a scope of trackers that user can assign the issue to
   def allowed_target_trackers(user=User.current)
-    self.class.allowed_target_trackers(project, user, tracker_id_was)
+    self.class.allowed_target_trackers(project, user)
   end
 
   # Returns a scope of trackers that user can assign project issues to
@@ -1871,13 +1786,7 @@ class Issue < ActiveRecord::Base
 
   # Default assignment based on project or category
   def default_assign
-    if assigned_to.nil?
-      if category && category.assigned_to
-        self.assigned_to = category.assigned_to
-      elsif project && project.default_assigned_to
-        self.assigned_to = project.default_assigned_to
-      end
-    end
+    nil
   end
 
   # Updates start/due dates of following issues
@@ -1987,13 +1896,7 @@ class Issue < ActiveRecord::Base
   end
 
   def clear_disabled_fields
-    if tracker
-      tracker.disabled_core_fields.each do |attribute|
-        send "#{attribute}=", nil
-      end
-      self.priority_id ||= IssuePriority.default&.id || IssuePriority.active.first&.id
-      self.done_ratio ||= 0
-    end
+    nil
   end
 
   def filter_projects_scope(scope=nil)

@@ -30,7 +30,6 @@ module IssuesHelper
         ancestors.pop
       end
       yield issue, ancestors.size
-      ancestors << issue unless issue.leaf?
     end
   end
 
@@ -42,7 +41,6 @@ module IssuesHelper
         ancestors.pop
       end
       yield issue, ancestors.size, group_name, group_count, group_totals
-      ancestors << issue unless issue.leaf?
     end
   end
 
@@ -73,7 +71,7 @@ module IssuesHelper
   end
 
   def issue_heading(issue)
-    h("#{issue.tracker} ##{issue.id}")
+    nil
   end
 
   def render_issue_subject_with_tree(issue)
@@ -416,8 +414,7 @@ module IssuesHelper
 
   # Returns the number of descendants for an array of issues
   def issues_descendant_count(issues)
-    ids = issues.reject(&:leaf?).map {|issue| issue.descendants.ids}.flatten.uniq
-    ids -= issues.map(&:id)
+    ids = issues.map(&:id)
     ids.size
   end
 

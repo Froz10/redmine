@@ -1,29 +1,22 @@
-<%= labelled_fields_for :issue, @issue do |f| %>
-<%= call_hook(:view_issues_form_details_top, { :issue => @issue, :form => f }) %>
-<%= hidden_field_tag 'form_update_triggered_by', '' %>
-<%= hidden_field_tag 'back_url', params[:back_url], :id => nil if params[:back_url].present? %>
-
 <% if @issue.safe_attribute? 'is_private' %>
-<p id="issue_is_private_wrap">
-  <%= f.check_box :is_private, :no_label => true %><label class="inline" for="issue_is_private" id="issue_is_private_label"><%= l(:field_is_private) %></label>
-</p>
+  <p id="issue_is_private_wrap">
+    <%= f.check_box :is_private, :no_label => true %><label class="inline" for="issue_is_private" id="issue_is_private_label"><%= l(:field_is_private) %></label>
+  </p>
 <% end %>
 
 <% projects = Project.all %>
-<% if (@issue.safe_attribute?('project_id') || @issue.project_id_changed?) && (@project.nil? || projects.length > 1 || @issue.copy?) %>
-<p><%= f.select :project_id, project_tree_options_for_select(projects, :selected => @issue.project), {:required => true},
-                :onchange => "updateIssueFrom('#{escape_javascript update_issue_form_path(@project, @issue)}', this)" %></p>
+<% if (@issue.safe_attribute?('project_id')) %>
+<p>
+  <%= f.label :project_id %>
+  <%= f.select :project_id, options_for_select(projects.collect {|el| [el.name, el.id] }), {:required => true},
+                :onchange => "updateIssueFrom('#{escape_javascript update_issue_form_path(@project, @issue)}', this)" %>
+</p>
 <% end %>
 
-<% if @issue.safe_attribute?('tracker_id') || (@issue.persisted? && @issue.tracker_id_changed?) %>
-<p>
-  <%= f.select :tracker_id, trackers_options_for_select(@issue), {:required => true},
-               :onchange => "updateIssueFrom('#{escape_javascript update_issue_form_path(@project, @issue)}', this)",
-               :title => @issue.tracker&.description %>
-  <%= content_tag 'a', l(:label_open_trackers_description), :class => 'icon-only icon-help', :title => l(:label_open_trackers_description), :onclick => "showModal('trackers_description', '500px'); return false;", :href => '#' if trackers_for_select(@issue).any? {|t| t.description.present? } %>
-</p>
-  <%= render partial: 'issues/trackers_description', locals: {trackers: trackers_for_select(@issue)} %>
-<% end %>
+<%= labelled_fields_for :issue, @issue do |f| %>
+
+<%= hidden_field_tag 'form_update_triggered_by', '' %>
+<%= hidden_field_tag 'back_url', params[:back_url], :id => nil if params[:back_url].present? %>
 
 <% if @issue.safe_attribute? 'subject' %>
 <p><%= f.text_field :subject, :size => 80, :maxlength => 255, :required => true %></p>
@@ -46,10 +39,9 @@
 <% end %>
 
 <div id="attributes" class="attributes">
-  <%= render :partial => 'issues/attributes' %>
+  <%= render :partial => 'issues/attributes', :locals => {:f => f} %>
 </div>
 
-<%= call_hook(:view_issues_form_details_bottom, { :issue => @issue, :form => f }) %>
 <% end %>
 
 <% heads_for_wiki_formatter %>

@@ -533,10 +533,6 @@ class Query < ActiveRecord::Base
     is_public? && !is_global? && user.allowed_to?(:manage_public_queries, project)
   end
 
-  def trackers
-    @trackers ||= (project.nil? ? Tracker.all : project.rolled_up_trackers).visible.sorted
-  end
-
   # Returns a hash of localized labels for all filter operators
   def self.operators_labels
     operators.inject({}) {|h, operator| h[operator.first] = l(*operator.last); h}
@@ -697,12 +693,6 @@ class Query < ActiveRecord::Base
   end
   protected :initialize_available_filters
 
-  # Adds an available filter
-  def add_available_filter(field, options)
-    @available_filters ||= ActiveSupport::OrderedHash.new
-    @available_filters[field] = QueryFilter.new(field, options)
-    @available_filters
-  end
 
   # Removes an available filter
   def delete_available_filter(field)
@@ -1524,15 +1514,6 @@ class Query < ActiveRecord::Base
       filter_id = "#{assoc}.#{filter_id}"
       filter_name = l("label_attribute_of_#{assoc}", :name => filter_name)
     end
-    add_available_filter(
-      filter_id,
-      options.merge(
-        {
-          :name => filter_name,
-         :field => field
-        }
-      )
-    )
   end
 
   # Adds filters for custom fields associated to the custom field target class
@@ -1545,19 +1526,6 @@ class Query < ActiveRecord::Base
         options = chained.query_filter_options(self)
 
         filter_id = "cf_#{field.id}.cf_#{chained.id}"
-
-        add_available_filter(
-          filter_id,
-          options.merge(
-            {
-              :name => l(:label_attribute_of_object,
-                         :name => chained.name,
-                         :object_name => field.name),
-              :field => chained,
-              :through => field
-            }
-          )
-        )
       end
     end
   end
@@ -1569,21 +1537,6 @@ class Query < ActiveRecord::Base
       if assoc.nil?
         add_chained_custom_field_filters(field)
         if field.format.target_class && field.format.target_class == Version
-          add_available_filter(
-            "cf_#{field.id}.due_date",
-            :type => :date,
-            :field => field,
-            :name => l(:label_attribute_of_object, :name => l(:field_effective_date),
-                       :object_name => field.name)
-          )
-          add_available_filter(
-            "cf_#{field.id}.status",
-            :type => :list,
-            :field => field,
-            :name => l(:label_attribute_of_object, :name => l(:field_status),
-                       :object_name => field.name),
-            :values => Version::VERSION_STATUSES.map{|s| [l("version_status_#{s}"), s]}
-          )
         end
       end
     end
@@ -1593,7 +1546,7 @@ class Query < ActiveRecord::Base
   def add_associations_custom_fields_filters(*associations)
     fields_by_class = CustomField.visible.where(:is_filter => true).group_by(&:class)
     associations.each do |assoc|
-      association_klass = queried_class.reflect_on_association(assoc).klass
+      association_klass = queried_class.reflect_on_association(assoc)&.klass
       fields_by_class.each do |field_class, fields|
         if field_class.customized_class <= association_klass
           fields.sort.each do |field|
