@@ -1,19 +1,15 @@
 <% query_options = nil unless defined?(query_options) %>
 <% query_options ||= {} %>
-
+<% #byebug %>
 <%= form_tag({}, :data => {:cm_url => issues_context_menu_path}) do -%>
 <%= hidden_field_tag 'back_url', url_for(:params => request.query_parameters), :id => nil %>
-<%= query_columns_hidden_tags(query) %>
+<%= query_columns_hidden_tags(issues) %>
 <div class="autoscroll">
 <table class="list issues odd-even <%= query.css_classes %>">
   <thead>
     <tr>
-      <th class="checkbox hide-when-print">
-        <%= check_box_tag 'check_all', '', false, :class => 'toggle-selection',
-              :title => "#{l(:button_check_all)}/#{l(:button_uncheck_all)}" %>
-      </th>
-      <% query.inline_columns.each do |column| %>
-        <%= column_header(query, column, query_options) %>
+      <% Issue.column_names.each do |column_header| %>
+        <th><%= column_header %> </th>
       <% end %>
       <th class="buttons"></th>
     </tr>
@@ -32,8 +28,33 @@
     </tr>
   <% end %>
   <tr id="issue-<%= issue.id %>" class="hascontextmenu <%= cycle('odd', 'even') %> <%= issue.css_classes %> <%= level > 0 ? "idnt idnt-#{level}" : nil %>">
-    <td class="checkbox hide-when-print"><%= check_box_tag("ids[]", issue.id, false, :id => nil) %></td>
-    <td class="buttons"><%= link_to_context_menu %></td>
+    <td><%= link_to issue.id, issue %></td>
+    <td><%= issue.project.name %></td>
+    <td><%= issue.subject %></td>
+    <td><%= issue.description %></td>
+    <td><%= issue.due_date %></td>
+    <td><%= issue.lock_version %></td>
+    <td><%= issue.created_on.strftime("%Y-%m-%d") %></td>
+    <td><%= issue.updated_on.strftime("%Y-%m-%d") %></td>
+    <td><%= issue.start_date %></td>
+    <td><%= issue.done_ratio %></td>
+    <td><%= issue.estimated_hours %></td>
+    <td><%= issue.lft %></td>
+    <td><%= issue.rgt %></td>
+    <td><%= issue.is_private ? "Yes" : "No" %></td>
+    <td><%= issue.closed_on %></td>
+    <td><%= issue.status %></td>
+    <td><%= issue.priority %></td>
+    <td><%= issue.tags %></td>
+    <td><%= issue.price %></td>
+    <td><%= issue.number_of_task %></td>
+    <td><%= issue.contractor %></td>
+    <td><%= issue.nmck %></td>
+    <td><%= issue.remaining_amount_plan %></td>
+    <td><%= issue.remaining_amount_fact %></td>
+    <td><%= issue.is_plan ? "Yes" : "No" %></td>
+    <td><%= issue.executor %></td>
+    <td><%= issue.customer %></td>
   </tr>
   <% query.block_columns.each do |column|
        if (text = column_content(column, issue)) && text.present? -%>
